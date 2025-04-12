@@ -1,9 +1,9 @@
 import * as nats_core from "@nats-io/nats-core";
-import {ConnectionOptions, NatsConnection,DisconnectStatus} from "@nats-io/nats-core";
+import {ConnectionOptions, NatsConnection, ConnectionError} from "@nats-io/nats-core";
 import {useSso} from "../../store/SsoStore.tsx";
-import pickCoreEngine from "../core_engine/PickCoreEngine.ts";
-import { v4 as uuidv4 } from 'uuid';
-import { useNats } from "../../store/NatsStore.tsx";
+import assignWorkerToCore from "../core_engine/AssignWorkerToCore.ts";
+import {v4 as uuidv4} from 'uuid';
+import {useNats} from "../../store/NatsStore.tsx";
 
 interface Interaction {
   id: string;
@@ -22,19 +22,23 @@ interface Message {
   message: string;
 }
 
+let initTracker = false
+
 const servers = ["ws://10.10.0.55:4223"];
 let engineId: string;
 let connection: NatsConnection | null;
 
 async function initNats() {
+  if (initTracker) return
+  initTracker = true
   if (!useSso.getState().authenticated) {
     console.error("cannot connect to messaging server without being authed.")
     return;
   }
 
   try {
-    const response = await pickCoreEngine();
-    engineId = response.data.id
+    const response = await assignWorkerToCore();
+    engineId = response.data.engineId
   } catch (e) {
     console.error("failed to get an engine id to publish to, wont connect to messaging server", e);
     return;
@@ -44,12 +48,17 @@ async function initNats() {
     servers: servers,
     tls: null,
     token: useSso.getState().token,
-    maxPingOut:2,
-    pingInterval:5000,
-    name:uuidv4()
+    maxPingOut: 2,
+    pingInterval: 5000,
+    name: uuidv4(),
+    reconnect: true,
+    maxReconnectAttempts: 2,
   }
   connection = await nats_core.wsconnect(nats_options).then(c => {
-    c.closed().then(onClose)
+    c.closed().then((err) => {
+      useNats.getState().setConnected(false)
+      console.log(`messaging client disconnected`)
+    })
     useNats.getState().setConnectionName(nats_options.name!);
     useNats.getState().setInitializing(false);
     useNats.getState().setConnected(true);
@@ -84,7 +93,7 @@ function sendWorkerMessage(msg: Message) {
   }
 }
 
-function onClose(){
+function onClose() {
   (async () => {
     for await (const s of connection?.status()!) {
       switch (s.type) {
@@ -100,7 +109,7 @@ function onClose(){
         case "reconnect":
           console.warn(`messaging client reconnect`);
           break;
-          case "forceReconnect":
+        case "forceReconnect":
           console.warn(`messaging client force reconnect`);
           break;
         case "ping":
@@ -116,7 +125,7 @@ function onClose(){
           console.log(`messaging status got an unknown status`);
       }
     }
-})().then();
+  })().then();
 }
 
 export {initNats, sendWorkerMessage};

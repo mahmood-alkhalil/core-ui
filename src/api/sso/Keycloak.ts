@@ -1,7 +1,5 @@
 import Keycloak from 'keycloak-js';
 import {useSso} from "../../store/SsoStore.tsx";
-import {initNats} from "../nats/Nats.ts";
-import {initHttpClient} from "../../utils/HttpClient.ts";
 
 const keycloak: Keycloak = new Keycloak({
   url: "https://sso.laudatur.one",
@@ -18,10 +16,8 @@ try {
     useSso.getState().setToken(keycloak.token ? keycloak.token : "");
     useSso.getState().setRefreshToken(keycloak.refreshToken ? keycloak.refreshToken : "");
     useSso.getState().setUserId(keycloak.subject ? keycloak.subject : "");
+    useSso.getState().setInitializing(false);
   }
-  useSso.getState().setInitializing(true);
-  await initNats();
-  initHttpClient();
 } catch (error) {
   useSso.getState().setInitFailed(true);
   useSso.getState().setInitializing(false);
