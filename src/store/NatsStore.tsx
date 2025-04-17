@@ -6,12 +6,14 @@ type NatsState = {
   initFailed: boolean;
   connectionName: string;
   connected: boolean;
+  coreEngineId: string;
 };
 
 type NatsAction = {
   setInitializing: (initializing: boolean) => void;
   setInitFailed: (failed: boolean) => void;
   setConnectionName: (name: string) => void;
+  setCoreEngineId: (name: string) => void;
   setConnected: (connected: boolean) => void;
 };
 
@@ -21,6 +23,7 @@ export const useNats = create<NatsAction & NatsState>()(
     initFailed: false,
     connectionName: "",
     connected: false,
+    coreEngineId: "",
     setInitializing: (initializing: boolean) =>
       set((state) => {
         state.initializing = initializing;
@@ -32,6 +35,10 @@ export const useNats = create<NatsAction & NatsState>()(
     setConnectionName: (name: string) =>
       set((state) => {
         state.connectionName = name;
+      }),
+    setCoreEngineId: (coreEngineId: string) =>
+      set((state) => {
+        state.coreEngineId = coreEngineId;
       }),
     setConnected: (connected: boolean) =>
       set((state) => {

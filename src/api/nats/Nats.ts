@@ -1,9 +1,13 @@
 import * as nats_core from "@nats-io/nats-core";
-import {ConnectionOptions, NatsConnection, ConnectionError} from "@nats-io/nats-core";
-import {useSso} from "../../store/SsoStore.tsx";
+import {
+  ConnectionOptions,
+  NatsConnection,
+  ConnectionError,
+} from "@nats-io/nats-core";
+import { useSso } from "../../store/SsoStore.tsx";
 import assignWorkerToCore from "../core_engine/AssignWorkerToCore.ts";
-import {v4 as uuidv4} from 'uuid';
-import {useNats} from "../../store/NatsStore.tsx";
+import { v4 as uuidv4 } from "uuid";
+import { useNats } from "../../store/NatsStore.tsx";
 
 interface Interaction {
   id: string;
@@ -22,74 +26,86 @@ interface Message {
   message: string;
 }
 
-let initTracker = false
+let initTracker = false;
 
 const servers = ["ws://10.10.0.55:4223"];
 let engineId: string;
 let connection: NatsConnection | null;
 
 async function initNats() {
-  if (initTracker) return
-  initTracker = true
+  if (initTracker) return;
+  initTracker = true;
   if (!useSso.getState().authenticated) {
-    console.error("cannot connect to messaging server without being authed.")
+    console.error("cannot connect to messaging server without being authed.");
     return;
   }
 
   try {
     const response = await assignWorkerToCore();
-    engineId = response.data.engineId
+    useNats.getState().setCoreEngineId(response.data.engineId);
+    useNats.getState().setConnectionName(uuidv4());
   } catch (e) {
-    console.error("failed to get an engine id to publish to, wont connect to messaging server", e);
+    console.error(
+      "failed to get an engine id to publish to, wont connect to messaging server",
+      e
+    );
     return;
   }
 
   let nats_options: ConnectionOptions = {
+    name: useNats.getState().connectionName,
     servers: servers,
     tls: null,
     token: useSso.getState().token,
     maxPingOut: 2,
     pingInterval: 5000,
-    name: uuidv4(),
     reconnect: true,
     maxReconnectAttempts: 2,
-  }
-  connection = await nats_core.wsconnect(nats_options).then(c => {
-    c.closed().then((err) => {
-      useNats.getState().setConnected(false)
-      console.log(`messaging client disconnected`)
+  };
+  connection = await nats_core
+    .wsconnect(nats_options)
+    .then((c) => {
+      c.closed().then((err) => {
+        useNats.getState().setConnected(false);
+        console.log(`messaging client disconnected`);
+      });
+      useNats.getState().setConnectionName(nats_options.name!);
+      useNats.getState().setInitializing(false);
+      useNats.getState().setConnected(true);
+      return c;
     })
-    useNats.getState().setConnectionName(nats_options.name!);
-    useNats.getState().setInitializing(false);
-    useNats.getState().setConnected(true);
-    return c;
-  }).catch(e => {
-    console.error("failed to connect to NATS", e)
-    return null;
-  })
+    .catch((e) => {
+      console.error("failed to connect to NATS", e);
+      return null;
+    });
   await subscribeToSubjects();
 }
 
 async function subscribeToSubjects() {
   if (connection != null && !connection.isClosed()) {
-    connection.subscribe(`worker.${useSso.getState().userId}`, {callback: onMessage})
+    connection.subscribe(`worker.${useSso.getState().userId}`, {
+      callback: onMessage,
+    });
   }
 }
 
 function onMessage(err: Error | null, msg: any) {
   if (err) {
-    console.error("NATS on message error", err)
+    console.error("NATS on message error", err);
     return;
   }
   if (msg) {
     const message: Message = msg.json();
-    console.log("received a message ", message)
+    console.log("received a message ", message);
   }
 }
 
 function sendWorkerMessage(msg: Message) {
   if (connection != null && !connection.isClosed()) {
-    connection.publish(`${engineId}.worker.${useSso.getState().userId}`, JSON.stringify(msg))
+    connection.publish(
+      `${engineId}.worker.${useSso.getState().userId}`,
+      JSON.stringify(msg)
+    );
   }
 }
 
@@ -128,4 +144,4 @@ function onClose() {
   })().then();
 }
 
-export {initNats, sendWorkerMessage};
+export { initNats, sendWorkerMessage };
